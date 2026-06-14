@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -103,6 +105,8 @@ func (s *Service) newTokenPair(userID uint) (*TokenPair, error) {
 	return &TokenPair{AccessToken: access, RefreshToken: refresh}, nil
 }
 
+// refreshKey hashes the token so that long JWT strings are not used as Redis keys.
 func refreshKey(token string) string {
-	return fmt.Sprintf("refresh:%s", token)
+	sum := sha256.Sum256([]byte(token))
+	return "refresh:" + hex.EncodeToString(sum[:])
 }

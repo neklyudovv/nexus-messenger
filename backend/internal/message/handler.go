@@ -2,8 +2,9 @@ package message
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
-	"time"
+	"strconv"
 
 	"nexus-messenger/backend/internal/channel"
 	"nexus-messenger/backend/internal/httputil"
@@ -33,17 +34,23 @@ func (h *Handler) getHistory(c *gin.Context) {
 		return
 	}
 
-	if !h.channelSvc.IsMember(channelID, userID) {
+	isMember, err := h.channelSvc.IsMember(channelID, userID)
+	if err != nil || !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 
-	var before time.Time
-	if b := c.Query("before"); b != "" {
-		before, _ = time.Parse(time.RFC3339Nano, b)
+	var beforeID uint
+	if b := c.Query("before_id"); b != "" {
+		v, err := strconv.ParseUint(b, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid before_id"})
+			return
+		}
+		beforeID = uint(v)
 	}
 
-	msgs, err := h.svc.GetHistory(channelID, before)
+	msgs, err := h.svc.GetHistory(channelID, beforeID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -59,7 +66,7 @@ func (h *Handler) delete(c *gin.Context) {
 	}
 	channelID, err := h.svc.Delete(msgID, userID)
 	if err != nil {
-		if err.Error() == "not found" {
+		if errors.Is(err, ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
 		} else {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})

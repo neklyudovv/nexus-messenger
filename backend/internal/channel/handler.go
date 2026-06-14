@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -11,12 +12,13 @@ import (
 )
 
 type Handler struct {
-	svc       *Service
-	broadcast func([]uint, []byte)
+	svc               *Service
+	broadcast         func([]uint, []byte)
+	isWorkspaceMember func(workspaceID, userID uint) (bool, error)
 }
 
-func NewHandler(svc *Service, broadcast func([]uint, []byte)) *Handler {
-	return &Handler{svc: svc, broadcast: broadcast}
+func NewHandler(svc *Service, broadcast func([]uint, []byte), isWorkspaceMember func(uint, uint) (bool, error)) *Handler {
+	return &Handler{svc: svc, broadcast: broadcast, isWorkspaceMember: isWorkspaceMember}
 }
 
 func (h *Handler) Register(r gin.IRouter) {
@@ -41,7 +43,19 @@ func (h *Handler) workspaceCtx(c *gin.Context) {
 		c.Abort()
 		return
 	}
-	c.Set("workspace_id", uint(v))
+	wsID := uint(v)
+	ok, err := h.isWorkspaceMember(wsID, uid(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		c.Abort()
+		return
+	}
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "not a workspace member"})
+		c.Abort()
+		return
+	}
+	c.Set("workspace_id", wsID)
 	c.Next()
 }
 
@@ -101,9 +115,12 @@ func (h *Handler) getOne(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
 		return
 	}
-	if ch.Type != TypePublic && !h.svc.IsMember(cid, uid(c)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
-		return
+	if ch.Type != TypePublic {
+		isMember, err := h.svc.IsMember(cid, uid(c))
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, ch)
 }
@@ -114,8 +131,8 @@ func (h *Handler) delete(c *gin.Context) {
 		return
 	}
 	if err := h.svc.Delete(cid, uid(c)); err != nil {
-		if err.Error() == "channel not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if errors.Is(err, ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
 		} else {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		}
@@ -129,7 +146,8 @@ func (h *Handler) members(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !h.svc.IsMember(cid, uid(c)) {
+	isMember, err := h.svc.IsMember(cid, uid(c))
+	if err != nil || !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -154,7 +172,11 @@ func (h *Handler) addMember(c *gin.Context) {
 		return
 	}
 	if err := h.svc.AddMember(cid, uid(c), req.UserID); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		if errors.Is(err, ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "member added"})

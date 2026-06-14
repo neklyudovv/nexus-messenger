@@ -14,30 +14,46 @@ type Event struct {
 
 type Hub struct {
 	mu       sync.RWMutex
-	clients  map[uint]*Client          // userID → client
-	channels map[uint]map[uint]struct{} // channelID → set of userIDs
+	clients  map[uint]map[*Client]struct{} // userID → set of clients (multiple tabs)
+	channels map[uint]map[uint]struct{}    // channelID → set of userIDs
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:  make(map[uint]*Client),
+		clients:  make(map[uint]map[*Client]struct{}),
 		channels: make(map[uint]map[uint]struct{}),
 	}
 }
 
-func (h *Hub) Register(c *Client) {
+// Register adds c to the hub. Returns true if this is the user's first connection.
+func (h *Hub) Register(c *Client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.clients[c.userID] = c
+	if h.clients[c.userID] == nil {
+		h.clients[c.userID] = make(map[*Client]struct{})
+	}
+	first := len(h.clients[c.userID]) == 0
+	h.clients[c.userID][c] = struct{}{}
+	return first
 }
 
-func (h *Hub) Unregister(c *Client) {
+// Unregister removes c from the hub. Returns true if the user has no more connections.
+func (h *Hub) Unregister(c *Client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	set, ok := h.clients[c.userID]
+	if !ok {
+		return false
+	}
+	delete(set, c)
+	if len(set) > 0 {
+		return false
+	}
 	delete(h.clients, c.userID)
 	for _, members := range h.channels {
 		delete(members, c.userID)
 	}
+	return true
 }
 
 func (h *Hub) JoinChannel(channelID, userID uint) {
@@ -59,10 +75,14 @@ func (h *Hub) LeaveChannel(channelID, userID uint) {
 
 func (h *Hub) BroadcastToChannel(channelID uint, event Event) {
 	data, _ := json.Marshal(event)
+	h.BroadcastRawToChannel(channelID, data)
+}
+
+func (h *Hub) BroadcastRawToChannel(channelID uint, data []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for userID := range h.channels[channelID] {
-		if c, ok := h.clients[userID]; ok {
+		for c := range h.clients[userID] {
 			select {
 			case c.send <- data:
 			default:
@@ -75,20 +95,8 @@ func (h *Hub) BroadcastToAll(event Event) {
 	data, _ := json.Marshal(event)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for _, c := range h.clients {
-		select {
-		case c.send <- data:
-		default:
-		}
-	}
-}
-
-// BroadcastRawToChannel sends pre-marshalled JSON to every client subscribed to a channel.
-func (h *Hub) BroadcastRawToChannel(channelID uint, data []byte) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for userID := range h.channels[channelID] {
-		if c, ok := h.clients[userID]; ok {
+	for _, set := range h.clients {
+		for c := range set {
 			select {
 			case c.send <- data:
 			default:
@@ -97,16 +105,12 @@ func (h *Hub) BroadcastRawToChannel(channelID uint, data []byte) {
 	}
 }
 
-// BroadcastToUsers sends raw JSON only to the specified user IDs.
+// BroadcastToUsers sends raw JSON only to the specified user IDs (all their connections).
 func (h *Hub) BroadcastToUsers(userIDs []uint, data []byte) {
-	set := make(map[uint]struct{}, len(userIDs))
-	for _, id := range userIDs {
-		set[id] = struct{}{}
-	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for userID, c := range h.clients {
-		if _, ok := set[userID]; ok {
+	for _, userID := range userIDs {
+		for c := range h.clients[userID] {
 			select {
 			case c.send <- data:
 			default:

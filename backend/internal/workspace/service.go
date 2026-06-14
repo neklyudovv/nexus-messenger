@@ -9,6 +9,11 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	ErrNotFound  = errors.New("not found")
+	ErrForbidden = errors.New("forbidden")
+)
+
 type Service struct {
 	db *gorm.DB
 }
@@ -84,12 +89,14 @@ func (s *Service) GetMembers(workspaceID uint) ([]WorkspaceMember, error) {
 	return members, s.db.Where("workspace_id = ?", workspaceID).Find(&members).Error
 }
 
-func (s *Service) IsMember(workspaceID, userID uint) bool {
+func (s *Service) IsMember(workspaceID, userID uint) (bool, error) {
 	var count int64
-	s.db.Model(&WorkspaceMember{}).
+	if err := s.db.Model(&WorkspaceMember{}).
 		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
-		Count(&count)
-	return count > 0
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (s *Service) RegenerateInvite(workspaceID, requesterID uint) (string, error) {

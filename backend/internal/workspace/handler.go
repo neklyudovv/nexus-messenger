@@ -78,7 +78,8 @@ func (h *Handler) getOne(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !h.svc.IsMember(id, userID) {
+	isMember, err := h.svc.IsMember(id, userID)
+	if err != nil || !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
@@ -96,7 +97,8 @@ func (h *Handler) getMembers(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !h.svc.IsMember(id, userID) {
+	isMember, err := h.svc.IsMember(id, userID)
+	if err != nil || !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}

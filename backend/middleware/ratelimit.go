@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -20,26 +21,33 @@ type rateLimiter struct {
 	window  time.Duration
 }
 
-func newRateLimiter(max int, window time.Duration) *rateLimiter {
+func newRateLimiter(ctx context.Context, max int, window time.Duration) *rateLimiter {
 	rl := &rateLimiter{
 		buckets: make(map[string]*ipBucket),
 		max:     max,
 		window:  window,
 	}
-	go rl.cleanup()
+	go rl.cleanup(ctx)
 	return rl
 }
 
-func (rl *rateLimiter) cleanup() {
-	for range time.NewTicker(rl.window).C {
-		rl.mu.Lock()
-		now := time.Now()
-		for ip, b := range rl.buckets {
-			if now.After(b.resetAt) {
-				delete(rl.buckets, ip)
+func (rl *rateLimiter) cleanup(ctx context.Context) {
+	ticker := time.NewTicker(rl.window)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			now := time.Now()
+			for ip, b := range rl.buckets {
+				if now.After(b.resetAt) {
+					delete(rl.buckets, ip)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
 
@@ -56,8 +64,8 @@ func (rl *rateLimiter) allow(ip string) bool {
 }
 
 // RateLimit allows at most max requests per window per client IP.
-func RateLimit(max int, window time.Duration) gin.HandlerFunc {
-	rl := newRateLimiter(max, window)
+func RateLimit(ctx context.Context, max int, window time.Duration) gin.HandlerFunc {
+	rl := newRateLimiter(ctx, max, window)
 	return func(c *gin.Context) {
 		if !rl.allow(c.ClientIP()) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})

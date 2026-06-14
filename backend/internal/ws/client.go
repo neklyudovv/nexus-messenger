@@ -5,9 +5,7 @@ import (
 	"log"
 	"time"
 
-	"nexus-messenger/backend/internal/channel"
 	"nexus-messenger/backend/internal/message"
-	"nexus-messenger/backend/internal/user"
 
 	"github.com/gorilla/websocket"
 )
@@ -19,18 +17,32 @@ const (
 	maxMsgSize = 4096
 )
 
+type presenceService interface {
+	SetOnline(userID uint)
+	SetOffline(userID uint)
+	SetTyping(channelID, userID uint)
+}
+
+type messageService interface {
+	Create(channelID, userID uint, content string) (*message.Message, error)
+}
+
+type channelService interface {
+	IsMember(channelID, userID uint) (bool, error)
+}
+
 type Client struct {
 	hub        *Hub
 	conn       *websocket.Conn
 	send       chan []byte
 	userID     uint
-	userSvc    *user.Service
-	msgSvc     *message.Service
-	channelSvc *channel.Service
+	userSvc    presenceService
+	msgSvc     messageService
+	channelSvc channelService
 }
 
 func NewClient(hub *Hub, conn *websocket.Conn, userID uint,
-	userSvc *user.Service, msgSvc *message.Service, channelSvc *channel.Service) *Client {
+	userSvc presenceService, msgSvc messageService, channelSvc channelService) *Client {
 	return &Client{
 		hub:        hub,
 		conn:       conn,
@@ -49,16 +61,18 @@ type incomingEvent struct {
 }
 
 func (c *Client) Run() {
-	c.hub.Register(c)
-	c.userSvc.SetOnline(c.userID)
-	c.hub.BroadcastToAll(Event{Type: "user_online", UserID: c.userID})
+	if c.hub.Register(c) {
+		c.userSvc.SetOnline(c.userID)
+		c.hub.BroadcastToAll(Event{Type: "user_online", UserID: c.userID})
+	}
 
 	go c.writePump()
 	c.readPump()
 
-	c.hub.Unregister(c)
-	c.userSvc.SetOffline(c.userID)
-	c.hub.BroadcastToAll(Event{Type: "user_offline", UserID: c.userID})
+	if c.hub.Unregister(c) {
+		c.userSvc.SetOffline(c.userID)
+		c.hub.BroadcastToAll(Event{Type: "user_offline", UserID: c.userID})
+	}
 	c.conn.Close()
 }
 
@@ -155,7 +169,8 @@ func (c *Client) handle(ev incomingEvent) {
 }
 
 func (c *Client) isMember(channelID uint) bool {
-	if !c.channelSvc.IsMember(channelID, c.userID) {
+	ok, err := c.channelSvc.IsMember(channelID, c.userID)
+	if err != nil || !ok {
 		c.sendError("access denied")
 		return false
 	}

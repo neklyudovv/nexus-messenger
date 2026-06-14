@@ -8,6 +8,11 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	ErrNotFound  = errors.New("not found")
+	ErrForbidden = errors.New("forbidden")
+)
+
 type Service struct {
 	db *gorm.DB
 }
@@ -36,7 +41,7 @@ func (s *Service) GetAllDMs(userID uint) ([]Channel, error) {
 func (s *Service) GetByID(id uint) (*Channel, error) {
 	var ch Channel
 	if err := s.db.First(&ch, id).Error; err != nil {
-		return nil, err
+		return nil, ErrNotFound
 	}
 	return &ch, nil
 }
@@ -50,9 +55,6 @@ func (s *Service) GetWorkspaceMemberIDs(workspaceID uint) ([]uint, error) {
 }
 
 func (s *Service) Create(workspaceID uint, name, description string, chType ChannelType, createdBy uint) (*Channel, error) {
-	if chType == TypePrivate {
-		return nil, fmt.Errorf("private channels are not supported")
-	}
 	ch := &Channel{
 		WorkspaceID: workspaceID,
 		Name:        name,
@@ -70,7 +72,7 @@ func (s *Service) Create(workspaceID uint, name, description string, chType Chan
 func (s *Service) Delete(id, userID uint) error {
 	var ch Channel
 	if err := s.db.First(&ch, id).Error; err != nil {
-		return errors.New("channel not found")
+		return ErrNotFound
 	}
 	var member struct{ Role string }
 	s.db.Table("workspace_members").
@@ -78,7 +80,7 @@ func (s *Service) Delete(id, userID uint) error {
 		Where("workspace_id = ? AND user_id = ?", ch.WorkspaceID, userID).
 		Scan(&member)
 	if member.Role != "admin" && ch.CreatedBy != userID {
-		return errors.New("forbidden")
+		return ErrForbidden
 	}
 	return s.db.Delete(&Channel{}, id).Error
 }
@@ -86,13 +88,10 @@ func (s *Service) Delete(id, userID uint) error {
 func (s *Service) Join(channelID, userID uint) error {
 	ch, err := s.GetByID(channelID)
 	if err != nil {
-		return errors.New("channel not found")
+		return ErrNotFound
 	}
 	if ch.Type == TypeDM {
 		return errors.New("cannot join DM directly")
-	}
-	if ch.Type == TypePrivate {
-		return errors.New("private channel requires an invitation")
 	}
 	member := &ChannelMember{ChannelID: channelID, UserID: userID, JoinedAt: time.Now()}
 	return s.db.FirstOrCreate(member, ChannelMember{ChannelID: channelID, UserID: userID}).Error
@@ -107,7 +106,7 @@ func (s *Service) Leave(channelID, userID uint) error {
 func (s *Service) AddMember(channelID, requesterID, targetUserID uint) error {
 	ch, err := s.GetByID(channelID)
 	if err != nil {
-		return errors.New("channel not found")
+		return ErrNotFound
 	}
 	if ch.Type == TypeDM {
 		return errors.New("cannot add members to DM")
@@ -118,7 +117,7 @@ func (s *Service) AddMember(channelID, requesterID, targetUserID uint) error {
 			Where("workspace_id = ? AND user_id = ? AND role = 'admin'", ch.WorkspaceID, requesterID).
 			Count(&count)
 		if count == 0 {
-			return errors.New("only channel creator or workspace admin can add members")
+			return ErrForbidden
 		}
 	}
 	member := &ChannelMember{ChannelID: channelID, UserID: targetUserID, JoinedAt: time.Now()}
@@ -130,26 +129,30 @@ func (s *Service) GetMembers(channelID uint) ([]ChannelMember, error) {
 	return members, s.db.Where("channel_id = ?", channelID).Find(&members).Error
 }
 
-func (s *Service) IsMember(channelID, userID uint) bool {
+func (s *Service) IsMember(channelID, userID uint) (bool, error) {
 	ch, err := s.GetByID(channelID)
 	if err != nil {
-		return false
+		return false, ErrNotFound
 	}
 	if ch.Type == TypeDM {
 		var count int64
-		s.db.Model(&ChannelMember{}).
+		if err := s.db.Model(&ChannelMember{}).
 			Where("channel_id = ? AND user_id = ?", channelID, userID).
-			Count(&count)
-		return count > 0
+			Count(&count).Error; err != nil {
+			return false, err
+		}
+		return count > 0, nil
 	}
 	var count int64
-	s.db.Table("workspace_members").
+	if err := s.db.Table("workspace_members").
 		Where("workspace_id = ? AND user_id = ?", ch.WorkspaceID, userID).
-		Count(&count)
-	return count > 0
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
-// OpenDM finds or creates a direct message channel between two users.
+// OpenDM finds or creates a direct message channel between two users in the given workspace.
 func (s *Service) OpenDM(workspaceID, userID, targetID uint) (*Channel, error) {
 	var target struct{ ID uint }
 	if err := s.db.Table("users").Select("id").First(&target, targetID).Error; err != nil {
@@ -161,7 +164,7 @@ func (s *Service) OpenDM(workspaceID, userID, targetID uint) (*Channel, error) {
 		e := tx.
 			Joins("JOIN channel_members m1 ON m1.channel_id = channels.id AND m1.user_id = ?", userID).
 			Joins("JOIN channel_members m2 ON m2.channel_id = channels.id AND m2.user_id = ?", targetID).
-			Where("channels.type = ?", TypeDM).
+			Where("channels.type = ? AND channels.workspace_id = ?", TypeDM, workspaceID).
 			First(&ch).Error
 		if e == nil {
 			return nil // already exists

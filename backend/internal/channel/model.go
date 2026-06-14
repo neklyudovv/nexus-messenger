@@ -5,9 +5,8 @@ import "time"
 type ChannelType string
 
 const (
-	TypePublic  ChannelType = "public"
-	TypePrivate ChannelType = "private"
-	TypeDM      ChannelType = "dm"
+	TypePublic ChannelType = "public"
+	TypeDM     ChannelType = "dm"
 )
 
 type Channel struct {

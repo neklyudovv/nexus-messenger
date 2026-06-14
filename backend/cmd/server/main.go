@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"nexus-messenger/backend/config"
@@ -20,9 +24,19 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	cfg := config.Load()
 
-	postgres, err := db.NewPostgres(cfg)
+	postgres, err := db.NewPostgres(cfg,
+		&user.User{},
+		&workspace.Workspace{},
+		&workspace.WorkspaceMember{},
+		&channel.Channel{},
+		&channel.ChannelMember{},
+		&message.Message{},
+	)
 	if err != nil {
 		log.Fatalf("postgres: %v", err)
 	}
@@ -40,12 +54,12 @@ func main() {
 	hub          := ws.NewHub()
 
 	allowedOrigins := splitOrigins(cfg.CORSOrigins)
-	authLimiter    := middleware.RateLimit(10, time.Minute)
+	authLimiter    := middleware.RateLimit(ctx, 10, time.Minute)
 
 	authH      := auth.NewHandler(authSvc, cfg)
 	userH      := user.NewHandler(userSvc)
 	workspaceH := workspace.NewHandler(workspaceSvc)
-	channelH   := channel.NewHandler(channelSvc, hub.BroadcastToUsers)
+	channelH   := channel.NewHandler(channelSvc, hub.BroadcastToUsers, workspaceSvc.IsMember)
 	messageH   := message.NewHandler(messageSvc, channelSvc, hub.BroadcastRawToChannel)
 	wsH        := ws.NewHandler(hub, userSvc, messageSvc, channelSvc, cfg.JWTSecret, allowedOrigins)
 
@@ -70,9 +84,26 @@ func main() {
 
 	wsH.Register(r)
 
-	log.Printf("server listening on :%s", cfg.Port)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatalf("server: %v", err)
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: r,
+	}
+
+	go func() {
+		log.Printf("server listening on :%s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+	log.Println("shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown error: %v", err)
 	}
 }
 

@@ -7,9 +7,6 @@ import (
 	"time"
 
 	"nexus-messenger/backend/internal/auth"
-	"nexus-messenger/backend/internal/channel"
-	"nexus-messenger/backend/internal/message"
-	"nexus-messenger/backend/internal/user"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -17,15 +14,15 @@ import (
 
 type Handler struct {
 	hub        *Hub
-	userSvc    *user.Service
-	msgSvc     *message.Service
-	channelSvc *channel.Service
+	userSvc    presenceService
+	msgSvc     messageService
+	channelSvc channelService
 	jwtSecret  string
 	upgrader   websocket.Upgrader
 }
 
-func NewHandler(hub *Hub, userSvc *user.Service, msgSvc *message.Service,
-	channelSvc *channel.Service, jwtSecret string, allowedOrigins []string) *Handler {
+func NewHandler(hub *Hub, userSvc presenceService, msgSvc messageService,
+	channelSvc channelService, jwtSecret string, allowedOrigins []string) *Handler {
 
 	checkOrigin := func(r *http.Request) bool { return true }
 	if len(allowedOrigins) > 0 {
@@ -54,8 +51,7 @@ func (h *Handler) Register(r gin.IRouter) {
 	r.GET("/ws", h.serve)
 }
 
-// serve апгрейдит соединение и ожидает первое сообщение {"type":"auth","token":"<jwt>"}
-// Токен НЕ передаётся в URL чтобы не попасть в логи.
+// serve upgrades the connection and waits for the first message {"type":"auth","token":"<jwt>"}.
 func (h *Handler) serve(c *gin.Context) {
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {

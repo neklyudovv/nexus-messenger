@@ -2,12 +2,16 @@ package message
 
 import (
 	"errors"
-	"time"
 
 	"gorm.io/gorm"
 )
 
 const pageSize = 50
+
+var (
+	ErrNotFound  = errors.New("not found")
+	ErrForbidden = errors.New("forbidden")
+)
 
 type Service struct {
 	db *gorm.DB
@@ -17,19 +21,18 @@ func NewService(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
 
-// GetHistory returns up to 50 messages for a channel, newest first within the window,
-// then reversed to chronological order. Pass before to paginate backward.
-func (s *Service) GetHistory(channelID uint, before time.Time) ([]Message, error) {
+// GetHistory returns up to 50 messages for a channel in chronological order.
+// Pass beforeID to paginate backward (returns messages with id < beforeID).
+func (s *Service) GetHistory(channelID, beforeID uint) ([]Message, error) {
 	var msgs []Message
 	q := s.db.Where("channel_id = ? AND is_deleted = false", channelID)
-	if !before.IsZero() {
-		q = q.Where("created_at < ?", before)
+	if beforeID > 0 {
+		q = q.Where("id < ?", beforeID)
 	}
-	err := q.Order("created_at DESC").Limit(pageSize).Find(&msgs).Error
+	err := q.Order("id DESC").Limit(pageSize).Find(&msgs).Error
 	if err != nil {
 		return nil, err
 	}
-	// Reverse to chronological (oldest → newest) for the client
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
@@ -51,7 +54,7 @@ func (s *Service) Create(channelID, userID uint, content string) (*Message, erro
 func (s *Service) Delete(msgID, userID uint) (channelID uint, err error) {
 	var msg Message
 	if err := s.db.First(&msg, msgID).Error; err != nil {
-		return 0, errors.New("not found")
+		return 0, ErrNotFound
 	}
 	if msg.UserID != userID {
 		var count int64
@@ -62,7 +65,7 @@ func (s *Service) Delete(msgID, userID uint) (channelID uint, err error) {
 			msg.ChannelID, userID,
 		).Scan(&count)
 		if count == 0 {
-			return 0, errors.New("forbidden")
+			return 0, ErrForbidden
 		}
 	}
 	msg.IsDeleted = true

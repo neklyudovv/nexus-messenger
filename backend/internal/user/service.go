@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -51,11 +52,15 @@ func (s *Service) Update(id uint, username, avatarURL string) (*User, error) {
 }
 
 func (s *Service) SetOnline(userID uint) {
-	s.redis.Set(context.Background(), onlineKey(userID), 1, onlineTTL)
+	if err := s.redis.Set(context.Background(), onlineKey(userID), 1, onlineTTL).Err(); err != nil {
+		log.Printf("redis SetOnline user=%d: %v", userID, err)
+	}
 }
 
 func (s *Service) SetOffline(userID uint) {
-	s.redis.Del(context.Background(), onlineKey(userID))
+	if err := s.redis.Del(context.Background(), onlineKey(userID)).Err(); err != nil {
+		log.Printf("redis SetOffline user=%d: %v", userID, err)
+	}
 }
 
 func (s *Service) IsOnline(userID uint) bool {
@@ -64,7 +69,9 @@ func (s *Service) IsOnline(userID uint) bool {
 
 func (s *Service) SetTyping(channelID, userID uint) {
 	key := fmt.Sprintf("channel:%d:typing:%d", channelID, userID)
-	s.redis.Set(context.Background(), key, 1, typingTTL)
+	if err := s.redis.Set(context.Background(), key, 1, typingTTL).Err(); err != nil {
+		log.Printf("redis SetTyping ch=%d user=%d: %v", channelID, userID, err)
+	}
 }
 
 func onlineKey(userID uint) string {

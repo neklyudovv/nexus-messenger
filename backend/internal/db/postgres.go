@@ -4,17 +4,13 @@ import (
 	"fmt"
 
 	"nexus-messenger/backend/config"
-	"nexus-messenger/backend/internal/channel"
-	"nexus-messenger/backend/internal/message"
-	"nexus-messenger/backend/internal/user"
-	"nexus-messenger/backend/internal/workspace"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-func NewPostgres(cfg *config.Config) (*gorm.DB, error) {
+func NewPostgres(cfg *config.Config, models ...any) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		cfg.PostgresHost, cfg.PostgresPort,
@@ -29,14 +25,7 @@ func NewPostgres(cfg *config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("postgres connect: %w", err)
 	}
 
-	if err := db.AutoMigrate(
-		&user.User{},
-		&workspace.Workspace{},
-		&workspace.WorkspaceMember{},
-		&channel.Channel{},
-		&channel.ChannelMember{},
-		&message.Message{},
-	); err != nil {
+	if err := db.AutoMigrate(models...); err != nil {
 		return nil, fmt.Errorf("postgres migrate: %w", err)
 	}
 
