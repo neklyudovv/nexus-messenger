@@ -1,0 +1,617 @@
+openapi: 3.0.3
+info:
+  title: Nexus Messenger API
+  description: |
+    REST API for Nexus Messenger — a corporate real-time messenger.
+
+    ## Authentication
+    Most endpoints require a JWT access token in the `Authorization: Bearer <token>` header.
+    Tokens are obtained via `/auth/login` or `/auth/refresh`.
+
+    ## Real-time
+    Real-time events (messages, presence, typing) are delivered over WebSocket at `/ws?token=<access_token>`.
+    See the **WebSocket** section at the bottom for the full event protocol.
+  version: 1.0.0
+  contact:
+    name: Nexus Messenger
+
+servers:
+  - url: http://localhost:8080/api
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Registration, login, token refresh and logout
+  - name: Users
+    description: User profiles
+  - name: Workspaces
+    description: Workspace management and membership
+  - name: Channels
+    description: Channels and direct messages
+  - name: Messages
+    description: Message history and deletion
+  - name: WebSocket
+    description: Real-time WebSocket connection (mounted at ws://localhost:8080/ws, outside the /api prefix)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:         { type: integer, example: 1 }
+        username:   { type: string,  example: alice }
+        email:      { type: string,  format: email, example: alice@example.com }
+        avatar_url: { type: string,  example: "" }
+        created_at: { type: string,  format: date-time }
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:  { type: string, example: eyJhbGci... }
+        refresh_token: { type: string, example: a3f9b2c1... }
+
+    Workspace:
+      type: object
+      properties:
+        id:          { type: integer, example: 1 }
+        name:        { type: string,  example: Acme Corp }
+        description: { type: string,  example: Main company workspace }
+        owner_id:    { type: integer, example: 1 }
+        invite_code: { type: string,  example: 3f8a1c2d9e4b }
+        created_at:  { type: string,  format: date-time }
+
+    WorkspaceMember:
+      type: object
+      properties:
+        workspace_id: { type: integer, example: 1 }
+        user_id:      { type: integer, example: 2 }
+        role:         { type: string,  enum: [admin, member], example: member }
+        joined_at:    { type: string,  format: date-time }
+
+    Channel:
+      type: object
+      properties:
+        id:           { type: integer, example: 1 }
+        workspace_id: { type: integer, example: 1 }
+        name:         { type: string,  example: general }
+        description:  { type: string,  example: General discussion }
+        type:         { type: string,  enum: [public, private, dm], example: public }
+        created_by:   { type: integer, example: 1 }
+        created_at:   { type: string,  format: date-time }
+
+    ChannelMember:
+      type: object
+      properties:
+        channel_id: { type: integer, example: 1 }
+        user_id:    { type: integer, example: 2 }
+        joined_at:  { type: string,  format: date-time }
+
+    Message:
+      type: object
+      properties:
+        id:         { type: integer, example: 42 }
+        channel_id: { type: integer, example: 1 }
+        user_id:    { type: integer, example: 2 }
+        content:    { type: string,  example: "Hello!" }
+        type:       { type: string,  enum: [text, system], example: text }
+        is_deleted: { type: boolean, example: false }
+        created_at: { type: string,  format: date-time }
+        updated_at: { type: string,  format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: access denied }
+
+    MessageOK:
+      type: object
+      properties:
+        message: { type: string, example: ok }
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ─── Auth ────────────────────────────────────────────────────────────────────
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 50, example: alice }
+                email:    { type: string, format: email, example: alice@example.com }
+                password: { type: string, minLength: 6, example: secret123 }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Username or email already taken, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and obtain tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, format: email, example: alice@example.com }
+                password: { type: string, example: secret123 }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:   { $ref: '#/components/schemas/User' }
+                  tokens: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Invalid credentials, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      description: Returns a new token pair. The old refresh token is invalidated.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string, example: a3f9b2c1... }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Invalid or expired refresh token, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (invalidate refresh token)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string, example: a3f9b2c1... }
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageOK' }
+
+  # ─── Users ───────────────────────────────────────────────────────────────────
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List all users
+      responses:
+        '200':
+          description: All registered users
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/User' } }
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    patch:
+      tags: [Users]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:   { type: string, example: alice2 }
+                avatar_url: { type: string, example: "https://cdn.example.com/avatar.jpg" }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  # ─── Workspaces ──────────────────────────────────────────────────────────────
+
+  /workspaces:
+    post:
+      tags: [Workspaces]
+      summary: Create a workspace
+      description: The creator is automatically assigned the **admin** role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:        { type: string, minLength: 2, maxLength: 100, example: Acme Corp }
+                description: { type: string, example: Main company workspace }
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '409': { description: Name already taken, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/me:
+    get:
+      tags: [Workspaces]
+      summary: Get workspaces I belong to
+      responses:
+        '200':
+          description: List of workspaces
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Workspace' } }
+
+  /workspaces/join:
+    post:
+      tags: [Workspaces]
+      summary: Join a workspace by invite code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invite_code]
+              properties:
+                invite_code: { type: string, example: 3f8a1c2d9e4b }
+      responses:
+        '200':
+          description: Joined workspace
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '404': { description: Invalid invite code, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+    get:
+      tags: [Workspaces]
+      summary: Get workspace by ID
+      responses:
+        '200':
+          description: Workspace
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '403': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}/members:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+    get:
+      tags: [Workspaces]
+      summary: Get workspace members
+      responses:
+        '200':
+          description: Members list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/WorkspaceMember' } }
+        '403': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}/invite/regenerate:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+    post:
+      tags: [Workspaces]
+      summary: Regenerate invite code
+      description: Admin only. Invalidates the previous invite code.
+      responses:
+        '200':
+          description: New invite code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invite_code: { type: string, example: 9c2e4f7a1b0d }
+        '403': { description: Not an admin, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}/members/{userId}:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+      - { name: userId,      in: path, required: true, schema: { type: integer }, example: 2 }
+    patch:
+      tags: [Workspaces]
+      summary: Change member role
+      description: Admin only. Cannot change own role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [admin, member], example: admin }
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageOK' }
+        '403': { description: Not admin, or trying to change own role, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  # ─── Channels ────────────────────────────────────────────────────────────────
+
+  /channels/dms:
+    get:
+      tags: [Channels]
+      summary: Get all DM channels for current user
+      description: Returns DMs across **all** workspaces, not scoped to a single one.
+      responses:
+        '200':
+          description: DM channels
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Channel' } }
+
+  /workspaces/{workspaceId}/channels:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+    get:
+      tags: [Channels]
+      summary: List workspace channels
+      description: Returns all public channels in the workspace. DMs are excluded.
+      responses:
+        '200':
+          description: Channel list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Channel' } }
+    post:
+      tags: [Channels]
+      summary: Create a channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:        { type: string, minLength: 2, maxLength: 100, example: announcements }
+                description: { type: string, example: Company-wide announcements }
+                type:        { type: string, enum: [public], example: public }
+      responses:
+        '201':
+          description: Channel created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '409': { description: Channel name already taken, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}/channels/{channelId}:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+      - { name: channelId,   in: path, required: true, schema: { type: integer }, example: 3 }
+    get:
+      tags: [Channels]
+      summary: Get channel by ID
+      responses:
+        '200':
+          description: Channel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '403': { description: Access denied, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      tags: [Channels]
+      summary: Delete channel
+      description: Requires admin role or being the channel creator.
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageOK' }
+        '403': { description: Forbidden, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}/channels/{channelId}/members:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+      - { name: channelId,   in: path, required: true, schema: { type: integer }, example: 3 }
+    get:
+      tags: [Channels]
+      summary: Get channel members
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ChannelMember' } }
+        '403': { description: Access denied, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    post:
+      tags: [Channels]
+      summary: Add member to channel
+      description: Only the channel creator can add members.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: integer, example: 5 }
+      responses:
+        '200':
+          description: Member added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageOK' }
+        '403': { description: Not channel creator, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /workspaces/{workspaceId}/dm/{userId}:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+      - { name: userId,      in: path, required: true, schema: { type: integer }, example: 3 }
+    post:
+      tags: [Channels]
+      summary: Open or find a DM with a user
+      description: |
+        Returns an existing DM channel if one already exists between the two users
+        (regardless of workspace), otherwise creates one. The resulting channel
+        appears in `/channels/dms`.
+      responses:
+        '200':
+          description: DM channel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '500': { description: Target user not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  # ─── Messages ────────────────────────────────────────────────────────────────
+
+  /workspaces/{workspaceId}/channels/{channelId}/messages:
+    parameters:
+      - { name: workspaceId, in: path, required: true, schema: { type: integer }, example: 1 }
+      - { name: channelId,   in: path, required: true, schema: { type: integer }, example: 3 }
+    get:
+      tags: [Messages]
+      summary: Get message history
+      description: |
+        Returns up to 50 messages newest-first.
+        Use the `before` cursor (the `created_at` of the oldest message in the current page)
+        to load older messages.
+      parameters:
+        - name: before
+          in: query
+          description: Load messages created before this timestamp (RFC3339Nano). Omit for the latest page.
+          schema: { type: string, format: date-time, example: "2024-01-15T12:34:56.789Z" }
+      responses:
+        '200':
+          description: Messages (newest first)
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Message' } }
+        '403': { description: Access denied, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /messages/{messageId}:
+    parameters:
+      - { name: messageId, in: path, required: true, schema: { type: integer }, example: 42 }
+    delete:
+      tags: [Messages]
+      summary: Delete a message
+      description: Soft-delete — sets `is_deleted = true`. Only the message author can delete.
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageOK' }
+        '403': { description: Not the message author, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  # ─── WebSocket ───────────────────────────────────────────────────────────────
+  # Documented as a regular GET for reference; the actual upgrade happens via Gorilla.
+
+  /ws:
+    servers:
+      - url: ws://localhost:8080
+        description: WebSocket (mounted outside /api prefix)
+    get:
+      tags: [WebSocket]
+      summary: Establish WebSocket connection
+      description: |
+        Upgrades the HTTP connection to WebSocket. Authentication is via query param
+        because browsers don't support custom headers on WS connections.
+
+        **Connect:**
+        ```
+        ws://localhost:8080/ws?token=<access_token>
+        ```
+
+        ---
+
+        ### Client → Server events
+
+        | type | fields | description |
+        |---|---|---|
+        | `join_channel` | `channel_id` | Subscribe to channel events |
+        | `leave_channel` | `channel_id` | Unsubscribe |
+        | `send_message` | `channel_id`, `content` | Send a message |
+        | `typing` | `channel_id` | Signal that the user is typing (3 s TTL) |
+        | `ping` | — | Keep-alive / refresh online status |
+
+        ---
+
+        ### Server → Client events
+
+        | type | fields | description |
+        |---|---|---|
+        | `new_message` | `channel_id`, `payload` (Message) | New message in a subscribed channel |
+        | `message_deleted` | `channel_id`, `payload.id` | Message soft-deleted |
+        | `user_online` | `user_id` | User came online |
+        | `user_offline` | `user_id` | User went offline |
+        | `typing` | `channel_id`, `user_id` | User is typing |
+        | `pong` | — | Response to `ping` |
+        | `error` | `payload` (string) | Error message |
+
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: JWT access token
+          schema: { type: string }
+      responses:
+        '101':
+          description: Switching Protocols — WebSocket connection established
+        '401':
+          description: Missing or invalid token
