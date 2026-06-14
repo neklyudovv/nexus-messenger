@@ -38,7 +38,7 @@ cp .env.example .env
 docker-compose up --build
 ```
 
-Open **http://localhost** → register → create a workspace → share the invite code.
+Open **http://localhost** -> register -> create a workspace -> share the invite code.
 
 ## Architecture
 
@@ -57,11 +57,11 @@ backend/
 ├── config/            # typed env config with validation
 ├── middleware/        # JWT auth, IP-based rate limiter
 └── internal/
-    ├── auth/          # register · login · refresh · logout
+    ├── auth/          # register, login,  refresh,  logout
     ├── user/          # profile (username, avatar)
-    ├── workspace/     # workspaces · members · invite codes
-    ├── channel/       # channels · DMs · membership
-    ├── message/       # history (cursor pagination) · soft-delete + WS broadcast
+    ├── workspace/     # workspaces,  members,  invite codes
+    ├── channel/       # channels,  DMs,  membership
+    ├── message/       # history (cursor pagination),  soft-delete + WS broadcast
     ├── ws/            # WebSocket hub + per-client pump
     ├── db/            # postgres + redis clients
     ├── httputil/      # shared HTTP handler utilities (path param parsing)
@@ -70,7 +70,7 @@ backend/
 
 ### WebSocket protocol
 
-Connect to `GET /ws`, then immediately send:
+Connect to `GET /ws`, then send:
 
 ```json
 { "type": "auth", "token": "<access_token>" }
@@ -78,27 +78,9 @@ Connect to `GET /ws`, then immediately send:
 
 Token goes in the **first message**, not in the URL (prevents leaking to logs).
 
-**Client → server** event types: `join_channel` · `leave_channel` · `send_message` · `typing` · `ping`
+**Client -> server** event types: `join_channel`,  `leave_channel`,  `send_message`,  `typing`,  `ping`
 
-**Server → client** event types: `new_message` · `message_deleted` · `user_online` · `user_offline` · `typing` · `pong` · `channel_created`
-
-## Local development
-
-Prerequisites: Go 1.22+, Node 20+, PostgreSQL, Redis.
-
-```bash
-# Backend
-cp .env.example .env   # edit secrets
-cd backend
-go run ./cmd/server/
-
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-Vite proxies `/api` and `/ws` to `localhost:8080`, so CORS is a non-issue in dev.
+**Server -> client** event types: `new_message`,  `message_deleted`,  `user_online`,  `user_offline`,  `typing`,  `pong`,  `channel_created`
 
 ## Configuration
 
@@ -133,13 +115,7 @@ cd backend
 go test ./...
 ```
 
-The test suite covers JWT token generation/validation, the rate limiter, and invite code generation. Integration tests (requiring a live database) are out of scope for the current setup — contributions welcome.
-
 ## API reference
 
 Start the stack and visit **http://localhost/api/docs** for the interactive Scalar UI.  
 Raw spec: `GET /api/openapi.yaml`
-
-## License
-
-MIT
