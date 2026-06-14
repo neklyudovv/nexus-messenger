@@ -1,104 +1,169 @@
 <template>
-  <div class="w-16 bg-gray-900 flex flex-col items-center py-3 gap-1.5 shrink-0 border-r border-gray-700/40">
-    <!-- workspace icons -->
-    <button
+  <!-- Rail -->
+  <div class="w-[60px] bg-rail flex flex-col items-center py-3 gap-1 shrink-0 border-r border-white/5">
+
+    <!-- Workspace buttons -->
+    <div
       v-for="w in workspace.workspaces"
       :key="w.id"
-      @click="emit('switch', w)"
-      :title="w.name"
-      :class="[
-        'w-10 h-10 flex items-center justify-center text-white text-sm font-bold transition-all duration-150 shrink-0',
-        workspace.activeWorkspace?.id === w.id && channels.activeChannel?.type !== 'dm'
-          ? 'bg-indigo-600 rounded-2xl'
-          : 'bg-gray-700 rounded-xl hover:bg-indigo-500 hover:rounded-2xl',
-      ]"
-    >{{ w.name[0].toUpperCase() }}</button>
-
-    <!-- separator + DMs (global, not workspace-scoped) -->
-    <template v-if="channels.allDMs.length">
-      <div class="w-8 border-t border-gray-600 my-0.5" />
+      class="relative flex items-center justify-center w-full h-[52px]"
+    >
+      <!-- Active indicator pill -->
+      <span
+        v-if="workspace.activeWorkspace?.id === w.id && channels.activeChannel?.type !== 'dm'"
+        class="absolute left-0 top-[14px] h-6 w-[3px] bg-white rounded-r-full pointer-events-none"
+      />
       <button
+        @click="emit('switch', w)"
+        :title="w.name"
+        :class="[
+          'w-10 h-10 flex items-center justify-center text-sm font-bold transition-all duration-200 cursor-pointer select-none',
+          workspace.activeWorkspace?.id === w.id && channels.activeChannel?.type !== 'dm'
+            ? 'bg-brand text-white rounded-[12px]'
+            : 'bg-surface text-tx-muted rounded-full hover:bg-brand hover:text-white hover:rounded-[12px]',
+        ]"
+      >{{ w.name[0].toUpperCase() }}</button>
+    </div>
+
+    <!-- DM avatars -->
+    <template v-if="channels.allDMs.length">
+      <div class="w-7 h-px bg-white/10 my-0.5" />
+      <div
         v-for="ch in channels.allDMs"
         :key="ch.id"
-        @click="selectDM(ch)"
-        :title="dmName(ch)"
-        :class="[
-          'w-10 h-10 flex items-center justify-center text-white text-xs font-bold transition-all duration-150 shrink-0',
-          channels.activeChannel?.id === ch.id
-            ? 'bg-indigo-600 rounded-2xl'
-            : 'bg-gray-600 rounded-full hover:bg-indigo-500 hover:rounded-2xl',
-        ]"
-      >{{ dmInitial(ch) }}</button>
+        class="relative flex items-center justify-center w-full h-[52px]"
+      >
+        <span
+          v-if="channels.activeChannel?.id === ch.id"
+          class="absolute left-0 top-[14px] h-6 w-[3px] bg-white rounded-r-full pointer-events-none"
+        />
+        <button
+          @click="selectDM(ch)"
+          :title="dmName(ch)"
+          :style="{ background: channels.activeChannel?.id === ch.id ? 'var(--color-brand)' : avatarColor(dmName(ch)) }"
+          :class="[
+            'w-10 h-10 flex items-center justify-center text-white text-xs font-bold transition-all duration-200 cursor-pointer select-none',
+            channels.activeChannel?.id === ch.id ? 'rounded-[12px]' : 'rounded-full hover:rounded-[12px]',
+          ]"
+        >{{ dmName(ch)[0]?.toUpperCase() }}</button>
+      </div>
     </template>
 
-    <div class="w-8 border-t border-gray-600 my-0.5" />
+    <div class="w-7 h-px bg-white/10 my-0.5" />
 
-    <!-- add workspace -->
+    <!-- Add workspace -->
     <div class="relative" ref="addRef">
       <button
         @click="showAdd = !showAdd"
         title="Добавить workspace"
-        class="w-10 h-10 rounded-xl bg-gray-700 hover:bg-green-600 hover:rounded-2xl flex items-center justify-center text-gray-300 hover:text-white text-2xl font-light transition-all duration-150"
-      >+</button>
+        class="w-10 h-10 rounded-xl bg-surface text-tx-muted hover:bg-online/20 hover:text-online flex items-center justify-center transition-all duration-150 cursor-pointer"
+      >
+        <svg class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+      </button>
 
       <div
         v-if="showAdd"
-        class="absolute left-full ml-2 top-0 z-50 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-2 w-52"
+        class="absolute left-full ml-2.5 top-0 z-50 bg-surface border border-white/10 rounded-xl shadow-2xl p-1.5 w-52"
       >
-        <button @click="showCreate = true; showAdd = false" class="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-700 transition">
-          + Создать workspace
+        <button
+          @click="showCreate = true; showAdd = false"
+          class="w-full text-left px-3 py-2 rounded-lg text-sm text-tx hover:bg-overlay transition-colors cursor-pointer flex items-center gap-2.5"
+        >
+          <svg class="w-4 h-4 text-tx-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Создать workspace
         </button>
-        <button @click="showJoin = true; showAdd = false" class="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-700 transition">
-          → Войти по коду
+        <button
+          @click="showJoin = true; showAdd = false"
+          class="w-full text-left px-3 py-2 rounded-lg text-sm text-tx hover:bg-overlay transition-colors cursor-pointer flex items-center gap-2.5"
+        >
+          <svg class="w-4 h-4 text-tx-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+          Войти по коду
         </button>
       </div>
     </div>
 
     <div class="flex-1" />
 
-    <!-- user avatar -->
+    <!-- User avatar -->
     <div class="relative" ref="userRef">
       <button
         @click="showUser = !showUser"
         :title="auth.user?.username"
-        class="w-10 h-10 rounded-full bg-indigo-500 hover:bg-indigo-400 flex items-center justify-center text-white text-sm font-bold transition"
+        :style="{ background: avatarColor(auth.user?.username || '') }"
+        class="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold transition-opacity hover:opacity-80 cursor-pointer"
       >{{ auth.user?.username?.[0]?.toUpperCase() }}</button>
 
       <div
         v-if="showUser"
-        class="absolute left-full ml-2 bottom-0 z-50 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-2 w-44"
+        class="absolute left-full ml-2.5 bottom-0 z-50 bg-surface border border-white/10 rounded-xl shadow-2xl overflow-hidden w-48"
       >
-        <p class="px-3 py-1.5 text-gray-400 text-sm truncate">{{ auth.user?.username }}</p>
-        <hr class="border-gray-700 my-1" />
-        <button @click="logout" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition">
-          Выйти
-        </button>
+        <p class="px-3 py-2.5 text-tx-muted text-xs truncate border-b border-white/8">{{ auth.user?.username }}</p>
+        <div class="p-1">
+          <button
+            @click="logout"
+            class="w-full text-left px-3 py-2 text-sm text-danger hover:bg-danger/10 rounded-lg transition-colors cursor-pointer flex items-center gap-2"
+          >
+            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Выйти
+          </button>
+        </div>
       </div>
     </div>
+
   </div>
 
   <!-- Modal: create workspace -->
-  <div v-if="showCreate" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="showCreate = false">
-    <div class="bg-gray-800 rounded-xl p-6 w-80 space-y-4">
-      <h2 class="text-white font-semibold text-lg">Создать workspace</h2>
-      <input v-model="newName" placeholder="Название" class="w-full px-3 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-      <input v-model="newDesc" placeholder="Описание (необязательно)" class="w-full px-3 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-      <div class="flex gap-2">
-        <button @click="createWS" class="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition">Создать</button>
-        <button @click="showCreate = false" class="flex-1 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition">Отмена</button>
+  <div
+    v-if="showCreate"
+    class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    @click.self="showCreate = false"
+  >
+    <div class="bg-surface border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+      <h2 class="text-tx-strong font-semibold text-base mb-5">Создать workspace</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-[11px] font-semibold text-tx-muted uppercase tracking-widest mb-2">Название</label>
+          <input v-model="newName" class="w-full px-3.5 py-2.5 rounded-lg bg-overlay border border-white/8 text-tx text-sm focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-tx-muted uppercase tracking-widest mb-2">
+            Описание
+            <span class="normal-case font-normal text-tx-subtle tracking-normal ml-1">необязательно</span>
+          </label>
+          <input v-model="newDesc" class="w-full px-3.5 py-2.5 rounded-lg bg-overlay border border-white/8 text-tx text-sm focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all" />
+        </div>
+      </div>
+      <div class="flex gap-2 mt-5">
+        <button @click="createWS" class="flex-1 py-2.5 bg-brand hover:bg-brand-dark text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">Создать</button>
+        <button @click="showCreate = false" class="flex-1 py-2.5 bg-overlay hover:bg-white/8 text-tx rounded-lg text-sm transition-colors cursor-pointer">Отмена</button>
       </div>
     </div>
   </div>
 
   <!-- Modal: join by code -->
-  <div v-if="showJoin" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="showJoin = false">
-    <div class="bg-gray-800 rounded-xl p-6 w-80 space-y-4">
-      <h2 class="text-white font-semibold text-lg">Войти по invite-коду</h2>
-      <input v-model="joinCode" placeholder="Код приглашения" class="w-full px-3 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-      <p v-if="joinError" class="text-red-400 text-sm">{{ joinError }}</p>
-      <div class="flex gap-2">
-        <button @click="joinWS" class="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition">Войти</button>
-        <button @click="showJoin = false" class="flex-1 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition">Отмена</button>
+  <div
+    v-if="showJoin"
+    class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    @click.self="showJoin = false"
+  >
+    <div class="bg-surface border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+      <h2 class="text-tx-strong font-semibold text-base mb-5">Войти по invite-коду</h2>
+      <div>
+        <label class="block text-[11px] font-semibold text-tx-muted uppercase tracking-widest mb-2">Код приглашения</label>
+        <input v-model="joinCode" class="w-full px-3.5 py-2.5 rounded-lg bg-overlay border border-white/8 text-tx text-sm focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all" />
+      </div>
+      <p v-if="joinError" class="text-danger text-sm mt-2">{{ joinError }}</p>
+      <div class="flex gap-2 mt-5">
+        <button @click="joinWS" class="flex-1 py-2.5 bg-brand hover:bg-brand-dark text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">Войти</button>
+        <button @click="showJoin = false" class="flex-1 py-2.5 bg-overlay hover:bg-white/8 text-tx rounded-lg text-sm transition-colors cursor-pointer">Отмена</button>
       </div>
     </div>
   </div>
@@ -132,14 +197,17 @@ const joinError  = ref('')
 const addRef     = ref(null)
 const userRef    = ref(null)
 
+const PALETTE = ['#1D6FE8','#0891B2','#0D9488','#16A34A','#D97706','#EA580C','#0E7490','#059669']
+function avatarColor(str = '') {
+  let h = 0
+  for (const c of str) h = (h << 5) - h + c.charCodeAt(0)
+  return PALETTE[Math.abs(h) % PALETTE.length]
+}
+
 function dmName(ch) {
   const parts = ch.name.split('-')
   const otherId = Number(parts[1]) === auth.user?.id ? Number(parts[2]) : Number(parts[1])
   return users.getById(otherId)?.username || ch.name
-}
-
-function dmInitial(ch) {
-  return dmName(ch)[0]?.toUpperCase() || '?'
 }
 
 function selectDM(ch) {
